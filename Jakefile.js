@@ -736,7 +736,7 @@ function cleanTestDirs() {
 }
 
 // used to pass data from jake command line directly to run.js
-function writeTestConfigFile(tests, runners, light, taskConfigsFolder, workerCount, stackTraceLimit, colors, testTimeout) {
+function writeTestConfigFile(tests, runners, light, taskConfigsFolder, workerCount, stackTraceLimit, colors, testTimeout, keepFailed) {
     var testConfigContents = JSON.stringify({
         runners: runners ? runners.split(",") : undefined,
         test: tests ? [tests] : undefined,
@@ -745,7 +745,8 @@ function writeTestConfigFile(tests, runners, light, taskConfigsFolder, workerCou
         taskConfigsFolder: taskConfigsFolder,
         stackTraceLimit: stackTraceLimit,
         noColor: !colors,
-        timeout: testTimeout
+        timeout: testTimeout,
+        keepFailed: keepFailed
     });
     fs.writeFileSync('test.config', testConfigContents);
 }
@@ -768,6 +769,8 @@ function runConsoleTests(defaultReporter, runInParallel) {
     var runners = process.env.runners || process.env.runner || process.env.ru;
     var tests = process.env.test || process.env.tests || process.env.t;
     var light = process.env.light === undefined || process.env.light !== "false";
+    var failed = process.env.failed;
+    var keepFailed = process.env.keepFailed || failed;
     var stackTraceLimit = process.env.stackTraceLimit;
     var testConfigFile = 'test.config';
     if (fs.existsSync(testConfigFile)) {
@@ -791,8 +794,8 @@ function runConsoleTests(defaultReporter, runInParallel) {
         testTimeout = 800000;
     }
 
-    if (tests || runners || light || testTimeout || taskConfigsFolder) {
-        writeTestConfigFile(tests, runners, light, taskConfigsFolder, workerCount, stackTraceLimit, colors, testTimeout);
+    if (tests || runners || light || testTimeout || taskConfigsFolder || keepFailed) {
+        writeTestConfigFile(tests, runners, light, taskConfigsFolder, workerCount, stackTraceLimit, colors, testTimeout, keepFailed);
     }
 
     var colorsFlag = process.env.color || process.env.colors;
@@ -806,7 +809,8 @@ function runConsoleTests(defaultReporter, runInParallel) {
     if (!runInParallel) {
         var startTime = mark();
         var args = [];
-        args.push("-R", reporter);
+        args.push("-R", "scripts/failed-tests");
+        args.push("-O", '"reporter=' + reporter + (keepFailed ? ",keepFailed=true" : "") + '"');
         if (tests) {
             args.push("-g", `"${tests}"`);
         }
@@ -830,8 +834,15 @@ function runConsoleTests(defaultReporter, runInParallel) {
         }
         args.push(run);
 
-        var cmd = "mocha " + args.join(" ");
-        console.log(cmd);
+        var cmd;
+        if (failed) {
+            args.unshift("scripts/run-failed-tests.js");
+            cmd = host + " " + args.join(" ");
+        }
+        else {
+            cmd = "mocha " + args.join(" ");
+        }
+
 
         var savedNodeEnv = process.env.NODE_ENV;
         process.env.NODE_ENV = "development";
